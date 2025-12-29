@@ -22,7 +22,9 @@
 #ifndef TOPOLOGY_SATELLITE_NETWORK_H
 #define TOPOLOGY_SATELLITE_NETWORK_H
 
+#include <string>
 #include <utility>
+#include <vector>
 #include "ns3/core-module.h"
 #include "ns3/node.h"
 #include "ns3/node-container.h"
@@ -111,6 +113,7 @@ namespace ns3 {
         std::string m_satellite_network_routes_dir;   //<! Directory containing the routes over time of the network
         bool m_satellite_network_force_static;        //<! True to disable satellite movement and basically run
                                                       //   it static at t=0 (like a static network)
+        std::vector<std::string> m_isl_relative_filenames; //<! ISL definition files relative to m_satellite_network_dir
 
         // Generated state
         NodeContainer m_allNodes;                           //!< All nodes

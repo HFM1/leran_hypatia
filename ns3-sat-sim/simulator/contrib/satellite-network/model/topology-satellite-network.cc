@@ -43,6 +43,14 @@ namespace ns3 {
         m_satellite_network_dir = m_basicSimulation->GetRunDir() + "/" + m_basicSimulation->GetConfigParamOrFail("satellite_network_dir");
         m_satellite_network_routes_dir =  m_basicSimulation->GetRunDir() + "/" + m_basicSimulation->GetConfigParamOrFail("satellite_network_routes_dir");
         m_satellite_network_force_static = parse_boolean(m_basicSimulation->GetConfigParamOrDefault("satellite_network_force_static", "false"));
+
+        // ISL files. By default read isls.txt and, if present in the same directory,
+        // also load crosslayer_isls.txt for inter-layer links.
+        m_isl_relative_filenames.clear();
+        m_isl_relative_filenames.push_back("isls.txt");
+        if (file_exists(m_satellite_network_dir + "/crosslayer_isls.txt")) {
+            m_isl_relative_filenames.push_back("crosslayer_isls.txt");
+        }
     }
 
     void
@@ -248,59 +256,67 @@ namespace ns3 {
         TrafficControlHelper tch_isl;
         tch_isl.SetRootQueueDisc("ns3::FifoQueueDisc", "MaxSize", QueueSizeValue(QueueSize("1p"))); // Will be removed later any case
 
-        // Open file
-        std::ifstream fs;
-        fs.open(m_satellite_network_dir + "/isls.txt");
-        NS_ABORT_MSG_UNLESS(fs.is_open(), "File isls.txt could not be opened");
+        uint32_t total_isls_created = 0;
 
-        // Read ISL pair from each line
-        std::string line;
-        int counter = 0;
-        while (std::getline(fs, line)) {
-            std::vector<std::string> res = split_string(line, " ", 2);
+        for (const auto& relative_filename : m_isl_relative_filenames) {
 
-            // Retrieve satellite identifiers
-            int32_t sat0_id = parse_positive_int64(res.at(0));
-            int32_t sat1_id = parse_positive_int64(res.at(1));
-            Ptr<Satellite> sat0 = m_satellites.at(sat0_id);
-            Ptr<Satellite> sat1 = m_satellites.at(sat1_id);
+            std::string filename = m_satellite_network_dir + "/" + relative_filename;
+            std::ifstream fs;
+            fs.open(filename);
+            NS_ABORT_MSG_UNLESS(fs.is_open(), format_string("File %s could not be opened", filename.c_str()));
+            std::cout << "    >> Loading ISLs from " << relative_filename << std::endl;
 
-            // Install a p2p laser link between these two satellites
-            NodeContainer c;
-            c.Add(m_satelliteNodes.Get(sat0_id));
-            c.Add(m_satelliteNodes.Get(sat1_id));
-            NetDeviceContainer netDevices = p2p_laser_helper.Install(c);
+            // Read ISL pair from each line
+            std::string line;
+            while (std::getline(fs, line)) {
+                if (line.empty()) {
+                    continue;
+                }
+                std::vector<std::string> res = split_string(line, " ", 2);
 
-            // Install traffic control helper
-            tch_isl.Install(netDevices.Get(0));
-            tch_isl.Install(netDevices.Get(1));
+                // Retrieve satellite identifiers
+                int32_t sat0_id = parse_positive_int64(res.at(0));
+                int32_t sat1_id = parse_positive_int64(res.at(1));
+                Ptr<Satellite> sat0 = m_satellites.at(sat0_id);
+                Ptr<Satellite> sat1 = m_satellites.at(sat1_id);
 
-            // Assign some IP address (nothing smart, no aggregation, just some IP address)
-            m_ipv4_helper.Assign(netDevices);
-            m_ipv4_helper.NewNetwork();
+                // Install a p2p laser link between these two satellites
+                NodeContainer c;
+                c.Add(m_satelliteNodes.Get(sat0_id));
+                c.Add(m_satelliteNodes.Get(sat1_id));
+                NetDeviceContainer netDevices = p2p_laser_helper.Install(c);
 
-            // Remove the traffic control layer (must be done here, else the Ipv4 helper will assign a default one)
-            TrafficControlHelper tch_uninstaller;
-            tch_uninstaller.Uninstall(netDevices.Get(0));
-            tch_uninstaller.Uninstall(netDevices.Get(1));
+                // Install traffic control helper
+                tch_isl.Install(netDevices.Get(0));
+                tch_isl.Install(netDevices.Get(1));
 
-            // Utilization tracking
-            if (m_enable_isl_utilization_tracking) {
-                netDevices.Get(0)->GetObject<PointToPointLaserNetDevice>()->EnableUtilizationTracking(m_isl_utilization_tracking_interval_ns);
-                netDevices.Get(1)->GetObject<PointToPointLaserNetDevice>()->EnableUtilizationTracking(m_isl_utilization_tracking_interval_ns);
+                // Assign some IP address (nothing smart, no aggregation, just some IP address)
+                m_ipv4_helper.Assign(netDevices);
+                m_ipv4_helper.NewNetwork();
 
-                m_islNetDevices.Add(netDevices.Get(0));
-                m_islFromTo.push_back(std::make_pair(sat0_id, sat1_id));
-                m_islNetDevices.Add(netDevices.Get(1));
-                m_islFromTo.push_back(std::make_pair(sat1_id, sat0_id));
+                // Remove the traffic control layer (must be done here, else the Ipv4 helper will assign a default one)
+                TrafficControlHelper tch_uninstaller;
+                tch_uninstaller.Uninstall(netDevices.Get(0));
+                tch_uninstaller.Uninstall(netDevices.Get(1));
+
+                // Utilization tracking
+                if (m_enable_isl_utilization_tracking) {
+                    netDevices.Get(0)->GetObject<PointToPointLaserNetDevice>()->EnableUtilizationTracking(m_isl_utilization_tracking_interval_ns);
+                    netDevices.Get(1)->GetObject<PointToPointLaserNetDevice>()->EnableUtilizationTracking(m_isl_utilization_tracking_interval_ns);
+
+                    m_islNetDevices.Add(netDevices.Get(0));
+                    m_islFromTo.push_back(std::make_pair(sat0_id, sat1_id));
+                    m_islNetDevices.Add(netDevices.Get(1));
+                    m_islFromTo.push_back(std::make_pair(sat1_id, sat0_id));
+                }
+
+                total_isls_created += 1;
             }
-
-            counter += 1;
+            fs.close();
         }
-        fs.close();
 
         // Completed
-        std::cout << "    >> Created " << std::to_string(counter) << " ISL(s)" << std::endl;
+        std::cout << "    >> Created " << std::to_string(total_isls_created) << " ISL(s)" << std::endl;
 
     }
 
