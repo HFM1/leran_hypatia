@@ -269,14 +269,24 @@ namespace ns3 {
             // Read ISL pair from each line
             std::string line;
             while (std::getline(fs, line)) {
-                if (line.empty()) {
+                if (line.find_first_not_of(" \t") == std::string::npos) {
                     continue;
                 }
-                std::vector<std::string> res = split_string(line, " ", 2);
+                std::vector<std::string> res = split_string(line, " ");
+
+                int32_t sat0_id = -1;
+                int32_t sat1_id = -1;
+                if (res.size() == 2) {
+                    sat0_id = parse_positive_int64(res.at(0));
+                    sat1_id = parse_positive_int64(res.at(1));
+                } else if (res.size() >= 3) {
+                    sat0_id = parse_positive_int64(res.at(0));
+                    sat1_id = parse_positive_int64(res.at(2));
+                } else {
+                    NS_ABORT_MSG(format_string("ISL line '%s' does not contain enough fields.", line.c_str()));
+                }
 
                 // Retrieve satellite identifiers
-                int32_t sat0_id = parse_positive_int64(res.at(0));
-                int32_t sat1_id = parse_positive_int64(res.at(1));
                 Ptr<Satellite> sat0 = m_satellites.at(sat0_id);
                 Ptr<Satellite> sat1 = m_satellites.at(sat1_id);
 
